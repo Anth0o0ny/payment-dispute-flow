@@ -9,6 +9,10 @@ data class Transaction(
     val merchant: String,
     val amount: Long,
     val currency: String,
+    val customerAge: Int?,
+    val channel: String,
+    val riskScore: Int,
+    val riskReasons: List<RiskReason>,
     val status: TransactionStatus,
     val createdAt: Instant
 )
