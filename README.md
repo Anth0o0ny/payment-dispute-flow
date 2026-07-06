@@ -1,11 +1,13 @@
 # Payment Dispute Flow
 
-`Payment Dispute Flow` - демонстрационный backend-проект про обработку спорных карточных операций.
+`Payment Dispute Flow` - демонстрационный backend-проект про мониторинг транзакций и обработку подозрительных операций.
 
 Проект состоит из двух Kotlin/Spring Boot сервисов:
 
-- `transaction-service` - сервис операций. Отвечает за данные по платежам и будет публиковать события о спорных операциях.
-- `dispute-workflow-service` - сервис разбора споров. Будет запускать процесс проверки, получать детали операции и отправлять итоговое решение.
+- `transaction-service` - сервис первичной обработки операций. Принимает транзакции, сохраняет их и быстро оценивает риск по локальным правилам без вызова внешних сервисов.
+- `dispute-workflow-service` - сервис углубленной проверки. Будет читать события о подозрительных операциях, запускать BPMN-процесс и собирать дополнительные данные для решения.
+
+Идея проекта: отделить быстрый поток обработки транзакций от более тяжелой проверки подозрительных операций. Первый сервис должен оставаться простым и быстрым, а оркестрация проверок, внешние запросы и дальнейшие решения выносятся в отдельные компоненты.
 
 ## Текущая структура
 
@@ -81,7 +83,7 @@ docker compose exec postgres psql -U payment_app -d payment_disputes -c "select 
 
 ## `transaction-service`
 
-`transaction-service` отвечает за операции клиента. На текущем этапе сервис хранит операции в памяти приложения и предоставляет REST API для создания и чтения операций.
+`transaction-service` отвечает за первичную обработку операций клиента. На текущем этапе сервис хранит операции в памяти приложения, предоставляет REST API для создания и чтения операций, рассчитывает `riskScore` и присваивает статус `SUSPICIOUS`, если операция требует дальнейшей проверки.
 
 Структура модуля:
 
@@ -90,6 +92,7 @@ transaction-service/src/main/kotlin/com/payflow/disputes/transaction/
   api/          REST-контроллеры, DTO и обработка ошибок
   domain/       доменная модель операции и статусы
   repository/   интерфейс репозитория и in-memory реализация
+  risk/         правила первичной risk-оценки операций
   service/      бизнес-логика создания и получения операций
 ```
 
@@ -114,7 +117,7 @@ GET  /api/transactions/{id}  получить операцию по иденти
 ```bash
 curl -X POST http://localhost:8081/api/transactions \
   -H "Content-Type: application/json" \
-  -d '{"accountId":"acc-1001","merchant":"Online Store","amount":12500,"currency":"rub"}'
+  -d '{"accountId":"acc-1001","merchant":"Online Store","amount":12500,"currency":"rub","customerAge":34,"channel":"mobile"}'
 ```
 
 Пример ответа:
@@ -126,8 +129,44 @@ curl -X POST http://localhost:8081/api/transactions \
   "merchant": "Online Store",
   "amount": 12500,
   "currency": "RUB",
+  "customerAge": 34,
+  "channel": "MOBILE",
+  "riskScore": 0,
+  "riskReasons": [],
   "status": "NEW",
   "createdAt": "2026-07-04T12:48:36.900994Z"
+}
+```
+
+Создать подозрительную операцию:
+
+```bash
+curl -X POST http://localhost:8081/api/transactions \
+  -H "Content-Type: application/json" \
+  -d '{"accountId":"acc-2001","merchant":"Unknown Crypto Exchange","amount":150000,"currency":"usd","customerAge":76,"channel":"unknown"}'
+```
+
+Пример ответа:
+
+```json
+{
+  "id": "7a0e30fe-2561-4a3c-b380-0122ff89d7f2",
+  "accountId": "acc-2001",
+  "merchant": "Unknown Crypto Exchange",
+  "amount": 150000,
+  "currency": "USD",
+  "customerAge": 76,
+  "channel": "UNKNOWN",
+  "riskScore": 185,
+  "riskReasons": [
+    "HIGH_AMOUNT",
+    "ELDERLY_CUSTOMER_TRANSFER",
+    "RISKY_MERCHANT",
+    "FOREIGN_CURRENCY",
+    "UNKNOWN_CHANNEL"
+  ],
+  "status": "SUSPICIOUS",
+  "createdAt": "2026-07-07T12:48:36.900994Z"
 }
 ```
 
@@ -147,6 +186,10 @@ curl http://localhost:8081/api/transactions
     "merchant": "Online Store",
     "amount": 12500,
     "currency": "RUB",
+    "customerAge": 34,
+    "channel": "MOBILE",
+    "riskScore": 0,
+    "riskReasons": [],
     "status": "NEW",
     "createdAt": "2026-07-04T12:48:36.900994Z"
   }
@@ -168,6 +211,10 @@ curl http://localhost:8081/api/transactions/4364a50b-f897-4395-98a6-92e64b50ef53
   "merchant": "Online Store",
   "amount": 12500,
   "currency": "RUB",
+  "customerAge": 34,
+  "channel": "MOBILE",
+  "riskScore": 0,
+  "riskReasons": [],
   "status": "NEW",
   "createdAt": "2026-07-04T12:48:36.900994Z"
 }
@@ -193,8 +240,8 @@ Content-Type: application/json
 ## План развития
 
 1. Подключить `transaction-service` к Postgres.
-2. Добавить ручку открытия спора по операции.
-3. Публиковать события о созданных спорах.
-4. Научить сервис разбора споров читать события из Kafka.
-5. Добавить Camunda-процесс проверки спорной операции.
-6. Возвращать итоговое решение обратно в сервис операций.
+2. Публиковать события о подозрительных операциях в Kafka.
+3. Научить сервис разбора читать события из Kafka.
+4. Добавить Camunda-процесс проверки подозрительной операции.
+5. Возвращать итоговое решение в отдельный сервис принятия действий.
+6. Добавить обработку ошибок, тесты и технический мониторинг.
