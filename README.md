@@ -76,7 +76,7 @@ docker compose exec postgres psql -U payment_app -d payment_disputes -c "select 
 Проверить Kafka:
 
 ```bash
-docker compose exec kafka kafka-topics.sh --bootstrap-server localhost:9092 --list
+  docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
 ```
 
 ## `transaction-service`
