@@ -1,5 +1,7 @@
-package com.payflow.disputes.transaction.api
+package com.payflow.disputes.transaction.api.controller
 
+import com.payflow.disputes.transaction.api.dto.CreateTransactionRequest
+import com.payflow.disputes.transaction.api.dto.TransactionResponse
 import com.payflow.disputes.transaction.service.TransactionService
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.GetMapping
