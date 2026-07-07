@@ -1,4 +1,4 @@
-package com.payflow.disputes.transaction.api
+package com.payflow.disputes.transaction.api.dto
 
 data class CreateTransactionRequest(
     val accountId: String,

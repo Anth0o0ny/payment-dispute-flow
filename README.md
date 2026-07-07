@@ -89,7 +89,10 @@ docker compose exec postgres psql -U payment_app -d payment_disputes -c "select 
 
 ```text
 transaction-service/src/main/kotlin/com/payflow/disputes/transaction/
-  api/          REST-контроллеры, DTO и обработка ошибок
+  api/
+    controller/ REST-контроллеры
+    dto/        модели входящих запросов и ответов API
+    error/      обработка ошибок REST API
   domain/       доменная модель операции и статусы
   repository/   интерфейс репозитория и in-memory реализация
   risk/         правила первичной risk-оценки операций

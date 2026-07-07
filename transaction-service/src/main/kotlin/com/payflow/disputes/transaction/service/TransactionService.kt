@@ -1,6 +1,6 @@
 package com.payflow.disputes.transaction.service
 
-import com.payflow.disputes.transaction.api.CreateTransactionRequest
+import com.payflow.disputes.transaction.api.dto.CreateTransactionRequest
 import com.payflow.disputes.transaction.domain.Transaction
 import com.payflow.disputes.transaction.domain.TransactionStatus
 import com.payflow.disputes.transaction.repository.TransactionRepository

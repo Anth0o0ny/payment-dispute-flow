@@ -1,8 +1,8 @@
-package com.payflow.disputes.transaction.api
+package com.payflow.disputes.transaction.api.dto
 
+import com.payflow.disputes.transaction.domain.RiskReason
 import com.payflow.disputes.transaction.domain.Transaction
 import com.payflow.disputes.transaction.domain.TransactionStatus
-import com.payflow.disputes.transaction.domain.RiskReason
 import java.time.Instant
 import java.util.UUID
 

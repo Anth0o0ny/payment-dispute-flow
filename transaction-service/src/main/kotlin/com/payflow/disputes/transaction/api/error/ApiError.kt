@@ -1,4 +1,4 @@
-package com.payflow.disputes.transaction.api
+package com.payflow.disputes.transaction.api.error
 
 import java.time.Instant
 
