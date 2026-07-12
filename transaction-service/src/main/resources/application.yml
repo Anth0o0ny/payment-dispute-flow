@@ -4,3 +4,14 @@ server:
 spring:
   application:
     name: transaction-service
+  datasource:
+    url: ${TRANSACTION_DB_URL:jdbc:postgresql://localhost:5432/payment_disputes}
+    username: ${TRANSACTION_DB_USER:payment_app}
+    password: ${TRANSACTION_DB_PASSWORD:payment_app}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
