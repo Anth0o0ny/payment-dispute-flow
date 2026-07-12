@@ -35,6 +35,7 @@ dispute-workflow-service/
 Запустить сервис операций:
 
 ```bash
+docker compose up -d postgres
 ./gradlew :transaction-service:bootRun
 ```
 
@@ -78,12 +79,14 @@ docker compose exec postgres psql -U payment_app -d payment_disputes -c "select 
 Проверить Kafka:
 
 ```bash
-  docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
 ```
 
 ## `transaction-service`
 
-`transaction-service` отвечает за первичную обработку операций клиента. На текущем этапе сервис хранит операции в памяти приложения, предоставляет REST API для создания и чтения операций, рассчитывает `riskScore` и присваивает статус `SUSPICIOUS`, если операция требует дальнейшей проверки.
+`transaction-service` отвечает за первичную обработку операций клиента. На текущем этапе сервис хранит операции в PostgreSQL, предоставляет REST API для создания и чтения операций, рассчитывает `riskScore` и присваивает статус `SUSPICIOUS`, если операция требует дальнейшей проверки.
+
+База `payment_disputes` создается Postgres-контейнером при первом запуске. Таблицы приложения создаются Hibernate при старте `transaction-service` по JPA entity.
 
 Структура модуля:
 
@@ -94,7 +97,7 @@ transaction-service/src/main/kotlin/com/payflow/disputes/transaction/
     dto/        модели входящих запросов и ответов API
     error/      обработка ошибок REST API
   domain/       доменная модель операции и статусы
-  repository/   интерфейс репозитория и in-memory реализация
+  repository/   интерфейс репозитория, JPA entity и Spring Data JPA реализация
   risk/         правила первичной risk-оценки операций
   service/      бизнес-логика создания и получения операций
 ```
@@ -112,6 +115,7 @@ GET  /api/transactions/{id}  получить операцию по иденти
 Запустить сервис:
 
 ```bash
+docker compose up -d postgres
 ./gradlew :transaction-service:bootRun
 ```
 
@@ -240,11 +244,18 @@ Content-Type: application/json
 {"message":"amount must be positive","timestamp":"2026-07-04T12:48:36.988492Z"}
 ```
 
+Проверить, что операции сохранились в PostgreSQL:
+
+```bash
+docker compose exec postgres psql -U payment_app -d payment_disputes \
+  -c "select id, account_id, amount, currency, risk_score, status from transactions order by created_at desc;"
+```
+
 ## План развития
 
-1. Подключить `transaction-service` к Postgres.
-2. Публиковать события о подозрительных операциях в Kafka.
-3. Научить сервис разбора читать события из Kafka.
-4. Добавить Camunda-процесс проверки подозрительной операции.
-5. Возвращать итоговое решение в отдельный сервис принятия действий.
+1. Публиковать события о подозрительных операциях в Kafka.
+2. Научить сервис разбора читать события из Kafka.
+3. Добавить Camunda-процесс проверки подозрительной операции.
+4. Возвращать итоговое решение в отдельный сервис принятия действий.
+5. Добавить миграции БД через Flyway или Liquibase.
 6. Добавить обработку ошибок, тесты и технический мониторинг.
