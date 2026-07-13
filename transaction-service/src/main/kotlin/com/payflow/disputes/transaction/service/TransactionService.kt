@@ -4,8 +4,8 @@ import com.payflow.disputes.transaction.api.dto.CreateTransactionRequest
 import com.payflow.disputes.transaction.domain.Transaction
 import com.payflow.disputes.transaction.domain.TransactionStatus
 import com.payflow.disputes.transaction.repository.TransactionRepository
-import com.payflow.disputes.transaction.risk.TransactionRiskInput
-import com.payflow.disputes.transaction.risk.TransactionRiskService
+import com.payflow.disputes.transaction.service.risk.TransactionRiskInput
+import com.payflow.disputes.transaction.service.risk.TransactionRiskService
 import org.springframework.stereotype.Service
 import java.time.Instant
 import java.util.UUID

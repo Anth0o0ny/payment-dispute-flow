@@ -1,4 +1,4 @@
-package com.payflow.disputes.transaction.risk
+package com.payflow.disputes.transaction.service.risk
 
 data class TransactionRiskInput(
     val merchant: String,
