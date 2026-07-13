@@ -1,4 +1,4 @@
-package com.payflow.disputes.transaction.risk
+package com.payflow.disputes.transaction.service.risk
 
 import com.payflow.disputes.transaction.domain.RiskReason
 

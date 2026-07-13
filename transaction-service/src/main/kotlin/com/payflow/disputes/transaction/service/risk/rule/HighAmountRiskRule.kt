@@ -1,6 +1,8 @@
-package com.payflow.disputes.transaction.risk
+package com.payflow.disputes.transaction.service.risk.rule
 
 import com.payflow.disputes.transaction.domain.RiskReason
+import com.payflow.disputes.transaction.service.risk.RiskRuleResult
+import com.payflow.disputes.transaction.service.risk.TransactionRiskInput
 import org.springframework.core.annotation.Order
 import org.springframework.stereotype.Component
 

@@ -98,8 +98,9 @@ transaction-service/src/main/kotlin/com/payflow/disputes/transaction/
     error/      обработка ошибок REST API
   domain/       доменная модель операции и статусы
   repository/   интерфейс репозитория, JPA entity и Spring Data JPA реализация
-  risk/         правила первичной risk-оценки операций
-  service/      бизнес-логика создания и получения операций
+  service/      бизнес-логика создания операций и первичная risk-оценка
+    risk/       сервис скоринга и входные модели проверки
+      rule/     отдельные правила первичной risk-оценки
 ```
 
 Доступные ручки:
