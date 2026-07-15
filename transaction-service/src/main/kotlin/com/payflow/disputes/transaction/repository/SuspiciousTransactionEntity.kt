@@ -17,8 +17,8 @@ import java.time.Instant
 import java.util.UUID
 
 @Entity
-@Table(name = "transactions")
-class TransactionEntity(
+@Table(name = "suspicious_transactions")
+class SuspiciousTransactionEntity(
     @Id
     @Column(name = "id", nullable = false)
     var id: UUID = UUID.randomUUID(),
@@ -46,8 +46,8 @@ class TransactionEntity(
 
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(
-        name = "transaction_risk_reasons",
-        joinColumns = [JoinColumn(name = "transaction_id")]
+        name = "suspicious_transaction_risk_reasons",
+        joinColumns = [JoinColumn(name = "suspicious_transaction_id")]
     )
     @Column(name = "reason", nullable = false)
     @Enumerated(EnumType.STRING)
@@ -55,7 +55,7 @@ class TransactionEntity(
 
     @Column(name = "status", nullable = false)
     @Enumerated(EnumType.STRING)
-    var status: TransactionStatus = TransactionStatus.NEW,
+    var status: TransactionStatus = TransactionStatus.SUSPICIOUS,
 
     @Column(name = "created_at", nullable = false)
     var createdAt: Instant = Instant.EPOCH
@@ -76,8 +76,12 @@ class TransactionEntity(
         )
 
     companion object {
-        fun from(transaction: Transaction): TransactionEntity =
-            TransactionEntity(
+        fun from(transaction: Transaction): SuspiciousTransactionEntity {
+            require(transaction.status == TransactionStatus.SUSPICIOUS) {
+                "Only suspicious transactions can be stored in suspicious transaction repository"
+            }
+
+            return SuspiciousTransactionEntity(
                 id = transaction.id,
                 accountId = transaction.accountId,
                 merchant = transaction.merchant,
@@ -90,5 +94,6 @@ class TransactionEntity(
                 status = transaction.status,
                 createdAt = transaction.createdAt
             )
+        }
     }
 }

@@ -8,29 +8,27 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.server.ResponseStatusException
 import java.util.UUID
 
 @RestController
-@RequestMapping("/api/transactions")
 class TransactionController(
     private val transactionService: TransactionService
 ) {
-    @PostMapping
+    @PostMapping("/api/transactions")
     @ResponseStatus(HttpStatus.CREATED)
     fun create(@RequestBody request: CreateTransactionRequest): TransactionResponse =
         TransactionResponse.from(transactionService.create(request))
 
-    @GetMapping("/{id}")
-    fun findById(@PathVariable id: UUID): TransactionResponse =
-        transactionService.findById(id)
+    @GetMapping("/api/suspicious-transactions/{id}")
+    fun findSuspiciousById(@PathVariable id: UUID): TransactionResponse =
+        transactionService.findSuspiciousById(id)
             ?.let(TransactionResponse::from)
-            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "Transaction $id was not found")
+            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "Suspicious transaction $id was not found")
 
-    @GetMapping
-    fun findAll(): List<TransactionResponse> =
-        transactionService.findAll().map(TransactionResponse::from)
+    @GetMapping("/api/suspicious-transactions")
+    fun findAllSuspicious(): List<TransactionResponse> =
+        transactionService.findAllSuspicious().map(TransactionResponse::from)
 }

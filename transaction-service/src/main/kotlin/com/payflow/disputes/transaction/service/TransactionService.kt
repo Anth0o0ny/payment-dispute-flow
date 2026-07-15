@@ -3,7 +3,7 @@ package com.payflow.disputes.transaction.service
 import com.payflow.disputes.transaction.api.dto.CreateTransactionRequest
 import com.payflow.disputes.transaction.domain.Transaction
 import com.payflow.disputes.transaction.domain.TransactionStatus
-import com.payflow.disputes.transaction.repository.TransactionRepository
+import com.payflow.disputes.transaction.repository.SuspiciousTransactionRepository
 import com.payflow.disputes.transaction.service.risk.TransactionRiskInput
 import com.payflow.disputes.transaction.service.risk.TransactionRiskService
 import org.springframework.stereotype.Service
@@ -12,7 +12,7 @@ import java.util.UUID
 
 @Service
 class TransactionService(
-    private val transactionRepository: TransactionRepository,
+    private val suspiciousTransactionRepository: SuspiciousTransactionRepository,
     private val transactionRiskService: TransactionRiskService
 ) {
     fun create(request: CreateTransactionRequest): Transaction {
@@ -50,12 +50,16 @@ class TransactionService(
             createdAt = Instant.now()
         )
 
-        return transactionRepository.save(transaction)
+        return if (transaction.status == TransactionStatus.SUSPICIOUS) {
+            suspiciousTransactionRepository.saveSuspicious(transaction)
+        } else {
+            transaction
+        }
     }
 
-    fun findById(id: UUID): Transaction? =
-        transactionRepository.findById(id)
+    fun findSuspiciousById(id: UUID): Transaction? =
+        suspiciousTransactionRepository.findById(id)
 
-    fun findAll(): List<Transaction> =
-        transactionRepository.findAll()
+    fun findAllSuspicious(): List<Transaction> =
+        suspiciousTransactionRepository.findAll()
 }
