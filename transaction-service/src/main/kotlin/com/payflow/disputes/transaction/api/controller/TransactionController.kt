@@ -3,6 +3,7 @@ package com.payflow.disputes.transaction.api.controller
 import com.payflow.disputes.transaction.api.dto.CreateTransactionRequest
 import com.payflow.disputes.transaction.api.dto.TransactionResponse
 import com.payflow.disputes.transaction.service.TransactionService
+import com.payflow.disputes.transaction.service.command.CreateTransactionCommand
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -18,7 +19,7 @@ class TransactionController(
 ) {
     @PostMapping("/api/transactions")
     fun create(@RequestBody request: CreateTransactionRequest): TransactionResponse =
-        TransactionResponse.from(transactionService.create(request))
+        TransactionResponse.from(transactionService.create(request.toCommand()))
 
     @GetMapping("/api/suspicious-transactions/{id}")
     fun findSuspiciousById(@PathVariable id: UUID): TransactionResponse =
@@ -29,4 +30,14 @@ class TransactionController(
     @GetMapping("/api/suspicious-transactions")
     fun findAllSuspicious(): List<TransactionResponse> =
         transactionService.findAllSuspicious().map(TransactionResponse::from)
+
+    private fun CreateTransactionRequest.toCommand(): CreateTransactionCommand =
+        CreateTransactionCommand(
+            accountId = accountId,
+            merchant = merchant,
+            amount = amount,
+            currency = currency,
+            customerAge = customerAge,
+            channel = channel
+        )
 }

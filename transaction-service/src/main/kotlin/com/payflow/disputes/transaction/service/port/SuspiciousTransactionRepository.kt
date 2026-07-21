@@ -1,4 +1,4 @@
-package com.payflow.disputes.transaction.repository
+package com.payflow.disputes.transaction.service.port
 
 import com.payflow.disputes.transaction.domain.Transaction
 import java.util.UUID
