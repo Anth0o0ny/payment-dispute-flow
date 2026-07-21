@@ -8,6 +8,11 @@ spring:
     url: ${TRANSACTION_DB_URL:jdbc:postgresql://localhost:5432/payment_disputes}
     username: ${TRANSACTION_DB_USER:payment_app}
     password: ${TRANSACTION_DB_PASSWORD:payment_app}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9094}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
   jpa:
     hibernate:
       ddl-auto: update
@@ -15,3 +20,8 @@ spring:
     properties:
       hibernate:
         format_sql: true
+
+app:
+  kafka:
+    topics:
+      suspicious-transactions: suspicious-transactions.detected
