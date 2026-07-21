@@ -1,9 +1,9 @@
 package com.payflow.disputes.transaction.service
 
-import com.payflow.disputes.transaction.api.dto.CreateTransactionRequest
 import com.payflow.disputes.transaction.domain.Transaction
 import com.payflow.disputes.transaction.domain.TransactionStatus
 import com.payflow.disputes.transaction.repository.SuspiciousTransactionRepository
+import com.payflow.disputes.transaction.service.command.CreateTransactionCommand
 import com.payflow.disputes.transaction.service.risk.TransactionRiskInput
 import com.payflow.disputes.transaction.service.risk.TransactionRiskService
 import org.springframework.stereotype.Service
@@ -15,34 +15,34 @@ class TransactionService(
     private val suspiciousTransactionRepository: SuspiciousTransactionRepository,
     private val transactionRiskService: TransactionRiskService
 ) {
-    fun create(request: CreateTransactionRequest): Transaction {
-        require(request.accountId.isNotBlank()) { "accountId must not be blank" }
-        require(request.merchant.isNotBlank()) { "merchant must not be blank" }
-        require(request.amount > 0) { "amount must be positive" }
-        require(request.currency.isNotBlank()) { "currency must not be blank" }
-        require(request.customerAge == null || request.customerAge in 0..120) {
+    fun create(command: CreateTransactionCommand): Transaction {
+        require(command.accountId.isNotBlank()) { "accountId must not be blank" }
+        require(command.merchant.isNotBlank()) { "merchant must not be blank" }
+        require(command.amount > 0) { "amount must be positive" }
+        require(command.currency.isNotBlank()) { "currency must not be blank" }
+        require(command.customerAge == null || command.customerAge in 0..120) {
             "customerAge must be between 0 and 120"
         }
 
-        val currency = request.currency.trim().uppercase()
-        val channel = request.channel?.trim()?.uppercase().takeUnless { it.isNullOrBlank() } ?: "UNKNOWN"
+        val currency = command.currency.trim().uppercase()
+        val channel = command.channel?.trim()?.uppercase().takeUnless { it.isNullOrBlank() } ?: "UNKNOWN"
         val riskAssessment = transactionRiskService.assess(
             TransactionRiskInput(
-                merchant = request.merchant.trim(),
-                amount = request.amount,
+                merchant = command.merchant.trim(),
+                amount = command.amount,
                 currency = currency,
-                customerAge = request.customerAge,
+                customerAge = command.customerAge,
                 channel = channel
             )
         )
 
         val transaction = Transaction(
             id = UUID.randomUUID(),
-            accountId = request.accountId.trim(),
-            merchant = request.merchant.trim(),
-            amount = request.amount,
+            accountId = command.accountId.trim(),
+            merchant = command.merchant.trim(),
+            amount = command.amount,
             currency = currency,
-            customerAge = request.customerAge,
+            customerAge = command.customerAge,
             channel = channel,
             riskScore = riskAssessment.score,
             riskReasons = riskAssessment.reasons,
