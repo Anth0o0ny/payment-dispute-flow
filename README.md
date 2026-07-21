@@ -4,7 +4,7 @@
 
 Проект состоит из двух Kotlin/Spring Boot сервисов:
 
-- `transaction-service` - сервис первичной обработки операций. Принимает транзакции, быстро оценивает риск по локальным правилам без вызова внешних сервисов и сохраняет только подозрительные операции.
+- `transaction-service` - сервис первичной обработки операций. Принимает транзакции, быстро оценивает риск по локальным правилам без вызова внешних сервисов, сохраняет короткий audit-результат для подозрительных операций и публикует событие в Kafka.
 - `dispute-workflow-service` - сервис углубленной проверки. Будет читать события о подозрительных операциях, запускать BPMN-процесс и собирать дополнительные данные для решения.
 
 Идея проекта: отделить быстрый поток обработки транзакций от более тяжелой проверки подозрительных операций. Первый сервис должен оставаться простым и быстрым, а оркестрация проверок, внешние запросы и дальнейшие решения выносятся в отдельные компоненты.
@@ -49,7 +49,7 @@ docker compose up -d postgres kafka kafka-ui
 
 Для локальной разработки используется Docker Compose:
 
-- `postgres` - операционное хранилище подозрительных операций и будущих статусов споров;
+- `postgres` - операционное хранилище результатов первичного risk screening;
 - `kafka` - брокер событий между сервисами;
 - `kafka-ui` - веб-интерфейс для просмотра топиков и сообщений Kafka.
 
@@ -84,9 +84,9 @@ docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server loca
 
 ## `transaction-service`
 
-`transaction-service` отвечает за первичную обработку операций клиента. Сервис не является источником полной истории транзакций: такая история считается внешней системой. На текущем этапе он предоставляет REST API для имитации входящего потока операций, рассчитывает `riskScore`, сохраняет в PostgreSQL только подозрительные операции и публикует событие о них в Kafka.
+`transaction-service` отвечает за первичную обработку операций клиента. Сервис не является источником полной истории транзакций: такая история считается внешней системой. На текущем этапе он предоставляет REST API для имитации входящего потока операций, рассчитывает `riskScore`, сохраняет в PostgreSQL только короткий audit-результат проверки и публикует событие о подозрительной операции в Kafka.
 
-Если операция проходит первичную проверку без подозрений, сервис возвращает результат скоринга, но не пишет эту операцию в свою базу и не отправляет событие в Kafka. Это снижает нагрузку на реляционное хранилище и оставляет в нем только данные, нужные для дальнейшего dispute/workflow-процесса.
+Если операция проходит первичную проверку без подозрений, сервис возвращает результат скоринга, но не пишет эту операцию в свою базу и не отправляет событие в Kafka. Если операция подозрительная, Postgres хранит только результат screening: идентификатор audit-case, идентификатор проверенной операции, score, причины риска, решение и время проверки. Детали операции передаются во второй сервис через Kafka-событие.
 
 База `payment_disputes` создается Postgres-контейнером при первом запуске. Таблицы приложения создаются Hibernate при старте `transaction-service` по JPA entity.
 
@@ -100,7 +100,7 @@ transaction-service/src/main/kotlin/com/payflow/disputes/transaction/
     error/      обработка ошибок REST API
   domain/       доменная модель операции и статусы
   messaging/    Kafka-адаптеры для публикации событий
-  repository/   JPA entity и Spring Data JPA реализация suspicious-хранилища
+  repository/   JPA entity и Spring Data JPA реализация audit-хранилища
   service/      бизнес-логика создания операций и первичная risk-оценка
     command/    входные команды service-слоя
     event/      события, которые публикует service-слой
@@ -113,8 +113,8 @@ transaction-service/src/main/kotlin/com/payflow/disputes/transaction/
 
 ```text
 POST /api/transactions                  выполнить первичную проверку операции
-GET  /api/suspicious-transactions       получить сохраненные подозрительные операции
-GET  /api/suspicious-transactions/{id}  получить подозрительную операцию по идентификатору
+GET  /api/risk-screening-cases       получить audit-записи первичного screening
+GET  /api/risk-screening-cases/{id}  получить audit-запись по идентификатору
 ```
 
 ### Проверка API
@@ -186,12 +186,12 @@ curl -X POST http://localhost:8081/api/transactions \
 }
 ```
 
-Такая операция сохраняется в PostgreSQL как suspicious snapshot и публикуется в Kafka для дальнейшей обработки во втором сервисе.
+По такой операции в PostgreSQL сохраняется короткий `risk_screening_case`, а полное событие публикуется в Kafka для дальнейшей обработки во втором сервисе.
 
-Получить список сохраненных подозрительных операций:
+Получить список audit-записей risk screening:
 
 ```bash
-curl http://localhost:8081/api/suspicious-transactions
+curl http://localhost:8081/api/risk-screening-cases
 ```
 
 Пример ответа:
@@ -199,13 +199,8 @@ curl http://localhost:8081/api/suspicious-transactions
 ```json
 [
   {
-    "id": "7a0e30fe-2561-4a3c-b380-0122ff89d7f2",
-    "accountId": "acc-2001",
-    "merchant": "Unknown Crypto Exchange",
-    "amount": 150000,
-    "currency": "USD",
-    "customerAge": 76,
-    "channel": "UNKNOWN",
+    "id": "e65926fb-c60e-4765-89a3-9ed835972467",
+    "transactionId": "7a0e30fe-2561-4a3c-b380-0122ff89d7f2",
     "riskScore": 185,
     "riskReasons": [
       "HIGH_AMOUNT",
@@ -214,29 +209,24 @@ curl http://localhost:8081/api/suspicious-transactions
       "FOREIGN_CURRENCY",
       "UNKNOWN_CHANNEL"
     ],
-    "status": "SUSPICIOUS",
-    "createdAt": "2026-07-07T12:48:36.900994Z"
+    "decision": "REQUIRES_REVIEW",
+    "screenedAt": "2026-07-07T12:48:36.900994Z"
   }
 ]
 ```
 
-Получить подозрительную операцию по id:
+Получить audit-запись risk screening по id:
 
 ```bash
-curl http://localhost:8081/api/suspicious-transactions/7a0e30fe-2561-4a3c-b380-0122ff89d7f2
+curl http://localhost:8081/api/risk-screening-cases/e65926fb-c60e-4765-89a3-9ed835972467
 ```
 
 Пример ответа:
 
 ```json
 {
-  "id": "7a0e30fe-2561-4a3c-b380-0122ff89d7f2",
-  "accountId": "acc-2001",
-  "merchant": "Unknown Crypto Exchange",
-  "amount": 150000,
-  "currency": "USD",
-  "customerAge": 76,
-  "channel": "UNKNOWN",
+  "id": "e65926fb-c60e-4765-89a3-9ed835972467",
+  "transactionId": "7a0e30fe-2561-4a3c-b380-0122ff89d7f2",
   "riskScore": 185,
   "riskReasons": [
     "HIGH_AMOUNT",
@@ -245,8 +235,8 @@ curl http://localhost:8081/api/suspicious-transactions/7a0e30fe-2561-4a3c-b380-0
     "FOREIGN_CURRENCY",
     "UNKNOWN_CHANNEL"
   ],
-  "status": "SUSPICIOUS",
-  "createdAt": "2026-07-04T12:48:36.900994Z"
+  "decision": "REQUIRES_REVIEW",
+  "screenedAt": "2026-07-07T12:48:36.900994Z"
 }
 ```
 
@@ -267,11 +257,11 @@ Content-Type: application/json
 {"message":"amount must be positive","timestamp":"2026-07-04T12:48:36.988492Z"}
 ```
 
-Проверить, что подозрительные операции сохранились в PostgreSQL:
+Проверить, что audit-запись сохранилась в PostgreSQL:
 
 ```bash
 docker compose exec postgres psql -U payment_app -d payment_disputes \
-  -c "select id, account_id, amount, currency, risk_score, status from suspicious_transactions order by created_at desc;"
+  -c "select id, transaction_id, risk_score, decision, screened_at from risk_screening_cases order by screened_at desc;"
 ```
 
 Проверить, что событие опубликовано в Kafka:
