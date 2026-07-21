@@ -13,6 +13,7 @@ java {
 
 dependencies {
     implementation(libs.spring.boot.starter.web)
+    implementation(libs.spring.kafka)
     implementation(libs.jackson.module.kotlin)
     implementation(libs.kotlin.reflect)
 
