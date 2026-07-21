@@ -5,7 +5,7 @@
 Проект состоит из двух Kotlin/Spring Boot сервисов:
 
 - `transaction-service` - сервис первичной обработки операций. Принимает транзакции, быстро оценивает риск по локальным правилам без вызова внешних сервисов, сохраняет короткий audit-результат для подозрительных операций и публикует событие в Kafka.
-- `dispute-workflow-service` - сервис углубленной проверки. Будет читать события о подозрительных операциях, запускать BPMN-процесс и собирать дополнительные данные для решения.
+- `dispute-workflow-service` - сервис углубленной проверки. Читает события о подозрительных операциях из Kafka. На следующих этапах будет создавать review-case, запускать BPMN-процесс и собирать дополнительные данные для решения.
 
 Идея проекта: отделить быстрый поток обработки транзакций от более тяжелой проверки подозрительных операций. Первый сервис должен оставаться простым и быстрым, а оркестрация проверок, внешние запросы и дальнейшие решения выносятся в отдельные компоненты.
 
@@ -304,9 +304,62 @@ docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
 http://localhost:8085
 ```
 
+## `dispute-workflow-service`
+
+`dispute-workflow-service` отвечает за дальнейшую обработку подозрительных операций. Сейчас сервис подключен к Kafka и читает события из топика `suspicious-transactions.detected`.
+
+На этом этапе сервис не сохраняет событие в БД. Его задача - подтвердить связь между сервисами и принять входящий контекст для будущего workflow-процесса. Хранилище будет добавлено тогда, когда появится собственная сущность второго сервиса: `review_case`.
+
+Структура модуля:
+
+```text
+dispute-workflow-service/src/main/kotlin/com/payflow/disputes/workflow/
+  messaging/  DTO входящего Kafka-события и Kafka listener
+```
+
+Запустить сервис:
+
+```bash
+./gradlew :dispute-workflow-service:bootRun
+```
+
+Проверить работу можно так:
+
+1. Запустить инфраструктуру:
+
+```bash
+docker compose up -d postgres kafka kafka-ui
+```
+
+2. Запустить `transaction-service`:
+
+```bash
+./gradlew :transaction-service:bootRun
+```
+
+3. В отдельном терминале запустить `dispute-workflow-service`:
+
+```bash
+./gradlew :dispute-workflow-service:bootRun
+```
+
+4. Отправить подозрительную операцию в `transaction-service`:
+
+```bash
+curl -X POST http://localhost:8081/api/transactions \
+  -H "Content-Type: application/json" \
+  -d '{"accountId":"acc-2001","merchant":"Unknown Crypto Exchange","amount":150000,"currency":"usd","customerAge":76,"channel":"unknown"}'
+```
+
+5. В логах `dispute-workflow-service` должна появиться запись:
+
+```text
+Received suspicious transaction event: eventId=..., transactionId=..., riskScore=..., reasons=[...]
+```
+
 ## План развития
 
-1. Научить сервис разбора читать события из Kafka.
+1. Создавать `review_case` во втором сервисе на основе Kafka-события.
 2. Добавить Camunda-процесс проверки подозрительной операции.
 3. Возвращать итоговое решение в отдельный сервис принятия действий.
 4. Добавить миграции БД через Flyway или Liquibase.

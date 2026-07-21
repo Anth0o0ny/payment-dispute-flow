@@ -4,3 +4,19 @@ server:
 spring:
   application:
     name: dispute-workflow-service
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9094}
+    consumer:
+      group-id: dispute-workflow-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: com.payflow.disputes.workflow.messaging
+        spring.json.value.default.type: com.payflow.disputes.workflow.messaging.SuspiciousTransactionDetectedEvent
+        spring.json.use.type.headers: false
+
+app:
+  kafka:
+    topics:
+      suspicious-transactions: suspicious-transactions.detected
