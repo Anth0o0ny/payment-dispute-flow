@@ -4,7 +4,7 @@
 
 Проект состоит из двух Kotlin/Spring Boot сервисов:
 
-- `transaction-service` - сервис первичной обработки операций. Принимает транзакции, сохраняет их и быстро оценивает риск по локальным правилам без вызова внешних сервисов.
+- `transaction-service` - сервис первичной обработки операций. Принимает транзакции, быстро оценивает риск по локальным правилам без вызова внешних сервисов и сохраняет только подозрительные операции.
 - `dispute-workflow-service` - сервис углубленной проверки. Будет читать события о подозрительных операциях, запускать BPMN-процесс и собирать дополнительные данные для решения.
 
 Идея проекта: отделить быстрый поток обработки транзакций от более тяжелой проверки подозрительных операций. Первый сервис должен оставаться простым и быстрым, а оркестрация проверок, внешние запросы и дальнейшие решения выносятся в отдельные компоненты.
@@ -49,7 +49,7 @@ docker compose up -d postgres
 
 Для локальной разработки используется Docker Compose:
 
-- `postgres` - база данных для операций и будущих статусов споров;
+- `postgres` - операционное хранилище подозрительных операций и будущих статусов споров;
 - `kafka` - брокер событий между сервисами;
 - `kafka-ui` - веб-интерфейс для просмотра топиков и сообщений Kafka.
 
@@ -84,7 +84,9 @@ docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server loca
 
 ## `transaction-service`
 
-`transaction-service` отвечает за первичную обработку операций клиента. На текущем этапе сервис хранит операции в PostgreSQL, предоставляет REST API для создания и чтения операций, рассчитывает `riskScore` и присваивает статус `SUSPICIOUS`, если операция требует дальнейшей проверки.
+`transaction-service` отвечает за первичную обработку операций клиента. Сервис не является источником полной истории транзакций: такая история считается внешней системой. На текущем этапе он предоставляет REST API для имитации входящего потока операций, рассчитывает `riskScore` и сохраняет в PostgreSQL только подозрительные операции, которые требуют дальнейшей проверки.
+
+Если операция проходит первичную проверку без подозрений, сервис возвращает результат скоринга, но не пишет эту операцию в свою базу. Это снижает нагрузку на реляционное хранилище и оставляет в нем только данные, нужные для дальнейшего dispute/workflow-процесса.
 
 База `payment_disputes` создается Postgres-контейнером при первом запуске. Таблицы приложения создаются Hibernate при старте `transaction-service` по JPA entity.
 
@@ -97,7 +99,7 @@ transaction-service/src/main/kotlin/com/payflow/disputes/transaction/
     dto/        модели входящих запросов и ответов API
     error/      обработка ошибок REST API
   domain/       доменная модель операции и статусы
-  repository/   интерфейс репозитория, JPA entity и Spring Data JPA реализация
+  repository/   интерфейс репозитория, JPA entity и Spring Data JPA реализация для suspicious-хранилища
   service/      бизнес-логика создания операций и первичная risk-оценка
     risk/       сервис скоринга и входные модели проверки
       rule/     отдельные правила первичной risk-оценки
@@ -106,9 +108,9 @@ transaction-service/src/main/kotlin/com/payflow/disputes/transaction/
 Доступные ручки:
 
 ```text
-POST /api/transactions       создать операцию
-GET  /api/transactions       получить список операций
-GET  /api/transactions/{id}  получить операцию по идентификатору
+POST /api/transactions                  выполнить первичную проверку операции
+GET  /api/suspicious-transactions       получить сохраненные подозрительные операции
+GET  /api/suspicious-transactions/{id}  получить подозрительную операцию по идентификатору
 ```
 
 ### Проверка API
@@ -120,7 +122,7 @@ docker compose up -d postgres
 ./gradlew :transaction-service:bootRun
 ```
 
-Создать операцию:
+Проверить обычную операцию:
 
 ```bash
 curl -X POST http://localhost:8081/api/transactions \
@@ -146,7 +148,9 @@ curl -X POST http://localhost:8081/api/transactions \
 }
 ```
 
-Создать подозрительную операцию:
+Такая операция не сохраняется в PostgreSQL, потому что она не требует дальнейшей проверки.
+
+Проверить подозрительную операцию:
 
 ```bash
 curl -X POST http://localhost:8081/api/transactions \
@@ -178,10 +182,12 @@ curl -X POST http://localhost:8081/api/transactions \
 }
 ```
 
-Получить список операций:
+Такая операция сохраняется в PostgreSQL как suspicious snapshot для дальнейшей обработки.
+
+Получить список сохраненных подозрительных операций:
 
 ```bash
-curl http://localhost:8081/api/transactions
+curl http://localhost:8081/api/suspicious-transactions
 ```
 
 Пример ответа:
@@ -189,41 +195,53 @@ curl http://localhost:8081/api/transactions
 ```json
 [
   {
-    "id": "4364a50b-f897-4395-98a6-92e64b50ef53",
-    "accountId": "acc-1001",
-    "merchant": "Online Store",
-    "amount": 12500,
-    "currency": "RUB",
-    "customerAge": 34,
-    "channel": "MOBILE",
-    "riskScore": 0,
-    "riskReasons": [],
-    "status": "NEW",
-    "createdAt": "2026-07-04T12:48:36.900994Z"
+    "id": "7a0e30fe-2561-4a3c-b380-0122ff89d7f2",
+    "accountId": "acc-2001",
+    "merchant": "Unknown Crypto Exchange",
+    "amount": 150000,
+    "currency": "USD",
+    "customerAge": 76,
+    "channel": "UNKNOWN",
+    "riskScore": 185,
+    "riskReasons": [
+      "HIGH_AMOUNT",
+      "ELDERLY_CUSTOMER_TRANSFER",
+      "RISKY_MERCHANT",
+      "FOREIGN_CURRENCY",
+      "UNKNOWN_CHANNEL"
+    ],
+    "status": "SUSPICIOUS",
+    "createdAt": "2026-07-07T12:48:36.900994Z"
   }
 ]
 ```
 
-Получить операцию по id:
+Получить подозрительную операцию по id:
 
 ```bash
-curl http://localhost:8081/api/transactions/4364a50b-f897-4395-98a6-92e64b50ef53
+curl http://localhost:8081/api/suspicious-transactions/7a0e30fe-2561-4a3c-b380-0122ff89d7f2
 ```
 
 Пример ответа:
 
 ```json
 {
-  "id": "4364a50b-f897-4395-98a6-92e64b50ef53",
-  "accountId": "acc-1001",
-  "merchant": "Online Store",
-  "amount": 12500,
-  "currency": "RUB",
-  "customerAge": 34,
-  "channel": "MOBILE",
-  "riskScore": 0,
-  "riskReasons": [],
-  "status": "NEW",
+  "id": "7a0e30fe-2561-4a3c-b380-0122ff89d7f2",
+  "accountId": "acc-2001",
+  "merchant": "Unknown Crypto Exchange",
+  "amount": 150000,
+  "currency": "USD",
+  "customerAge": 76,
+  "channel": "UNKNOWN",
+  "riskScore": 185,
+  "riskReasons": [
+    "HIGH_AMOUNT",
+    "ELDERLY_CUSTOMER_TRANSFER",
+    "RISKY_MERCHANT",
+    "FOREIGN_CURRENCY",
+    "UNKNOWN_CHANNEL"
+  ],
+  "status": "SUSPICIOUS",
   "createdAt": "2026-07-04T12:48:36.900994Z"
 }
 ```
@@ -245,11 +263,11 @@ Content-Type: application/json
 {"message":"amount must be positive","timestamp":"2026-07-04T12:48:36.988492Z"}
 ```
 
-Проверить, что операции сохранились в PostgreSQL:
+Проверить, что подозрительные операции сохранились в PostgreSQL:
 
 ```bash
 docker compose exec postgres psql -U payment_app -d payment_disputes \
-  -c "select id, account_id, amount, currency, risk_score, status from transactions order by created_at desc;"
+  -c "select id, account_id, amount, currency, risk_score, status from suspicious_transactions order by created_at desc;"
 ```
 
 ## План развития
