@@ -3,6 +3,8 @@ package com.payflow.disputes.transaction.service
 import com.payflow.disputes.transaction.domain.Transaction
 import com.payflow.disputes.transaction.domain.TransactionStatus
 import com.payflow.disputes.transaction.service.command.CreateTransactionCommand
+import com.payflow.disputes.transaction.service.event.SuspiciousTransactionDetectedEvent
+import com.payflow.disputes.transaction.service.port.SuspiciousTransactionEventPublisher
 import com.payflow.disputes.transaction.service.port.SuspiciousTransactionRepository
 import com.payflow.disputes.transaction.service.risk.TransactionRiskInput
 import com.payflow.disputes.transaction.service.risk.TransactionRiskService
@@ -13,6 +15,7 @@ import java.util.UUID
 @Service
 class TransactionService(
     private val suspiciousTransactionRepository: SuspiciousTransactionRepository,
+    private val suspiciousTransactionEventPublisher: SuspiciousTransactionEventPublisher,
     private val transactionRiskService: TransactionRiskService
 ) {
     fun create(command: CreateTransactionCommand): Transaction {
@@ -51,7 +54,9 @@ class TransactionService(
         )
 
         return if (transaction.status == TransactionStatus.SUSPICIOUS) {
-            suspiciousTransactionRepository.saveSuspicious(transaction)
+            val savedTransaction = suspiciousTransactionRepository.saveSuspicious(transaction)
+            suspiciousTransactionEventPublisher.publish(savedTransaction.toSuspiciousTransactionDetectedEvent())
+            savedTransaction
         } else {
             transaction
         }
@@ -62,4 +67,19 @@ class TransactionService(
 
     fun findAllSuspicious(): List<Transaction> =
         suspiciousTransactionRepository.findAll()
+
+    private fun Transaction.toSuspiciousTransactionDetectedEvent(): SuspiciousTransactionDetectedEvent =
+        SuspiciousTransactionDetectedEvent(
+            eventId = UUID.randomUUID(),
+            suspiciousTransactionId = id,
+            accountId = accountId,
+            merchant = merchant,
+            amount = amount,
+            currency = currency,
+            customerAge = customerAge,
+            channel = channel,
+            riskScore = riskScore,
+            riskReasons = riskReasons,
+            detectedAt = createdAt
+        )
 }
