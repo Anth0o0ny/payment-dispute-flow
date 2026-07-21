@@ -1,6 +1,7 @@
 package com.payflow.disputes.transaction.repository
 
 import com.payflow.disputes.transaction.domain.Transaction
+import com.payflow.disputes.transaction.service.port.SuspiciousTransactionRepository
 import org.springframework.stereotype.Repository
 import java.util.UUID
 

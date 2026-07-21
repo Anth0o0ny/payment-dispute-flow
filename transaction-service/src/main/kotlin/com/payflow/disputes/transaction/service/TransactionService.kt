@@ -2,8 +2,8 @@ package com.payflow.disputes.transaction.service
 
 import com.payflow.disputes.transaction.domain.Transaction
 import com.payflow.disputes.transaction.domain.TransactionStatus
-import com.payflow.disputes.transaction.repository.SuspiciousTransactionRepository
 import com.payflow.disputes.transaction.service.command.CreateTransactionCommand
+import com.payflow.disputes.transaction.service.port.SuspiciousTransactionRepository
 import com.payflow.disputes.transaction.service.risk.TransactionRiskInput
 import com.payflow.disputes.transaction.service.risk.TransactionRiskService
 import org.springframework.stereotype.Service
