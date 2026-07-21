@@ -1,6 +1,7 @@
 package com.payflow.disputes.transaction.api.controller
 
 import com.payflow.disputes.transaction.api.dto.CreateTransactionRequest
+import com.payflow.disputes.transaction.api.dto.RiskScreeningCaseResponse
 import com.payflow.disputes.transaction.api.dto.TransactionResponse
 import com.payflow.disputes.transaction.service.TransactionService
 import com.payflow.disputes.transaction.service.command.CreateTransactionCommand
@@ -21,15 +22,15 @@ class TransactionController(
     fun create(@RequestBody request: CreateTransactionRequest): TransactionResponse =
         TransactionResponse.from(transactionService.create(request.toCommand()))
 
-    @GetMapping("/api/suspicious-transactions/{id}")
-    fun findSuspiciousById(@PathVariable id: UUID): TransactionResponse =
-        transactionService.findSuspiciousById(id)
-            ?.let(TransactionResponse::from)
-            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "Suspicious transaction $id was not found")
+    @GetMapping("/api/risk-screening-cases/{id}")
+    fun findRiskScreeningCaseById(@PathVariable id: UUID): RiskScreeningCaseResponse =
+        transactionService.findRiskScreeningCaseById(id)
+            ?.let(RiskScreeningCaseResponse::from)
+            ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "Risk screening case $id was not found")
 
-    @GetMapping("/api/suspicious-transactions")
-    fun findAllSuspicious(): List<TransactionResponse> =
-        transactionService.findAllSuspicious().map(TransactionResponse::from)
+    @GetMapping("/api/risk-screening-cases")
+    fun findAllRiskScreeningCases(): List<RiskScreeningCaseResponse> =
+        transactionService.findAllRiskScreeningCases().map(RiskScreeningCaseResponse::from)
 
     private fun CreateTransactionRequest.toCommand(): CreateTransactionCommand =
         CreateTransactionCommand(

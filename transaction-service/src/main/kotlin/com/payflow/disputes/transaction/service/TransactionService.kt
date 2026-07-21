@@ -1,11 +1,13 @@
 package com.payflow.disputes.transaction.service
 
+import com.payflow.disputes.transaction.domain.RiskScreeningCase
+import com.payflow.disputes.transaction.domain.RiskScreeningDecision
 import com.payflow.disputes.transaction.domain.Transaction
 import com.payflow.disputes.transaction.domain.TransactionStatus
 import com.payflow.disputes.transaction.service.command.CreateTransactionCommand
 import com.payflow.disputes.transaction.service.event.SuspiciousTransactionDetectedEvent
+import com.payflow.disputes.transaction.service.port.RiskScreeningCaseRepository
 import com.payflow.disputes.transaction.service.port.SuspiciousTransactionEventPublisher
-import com.payflow.disputes.transaction.service.port.SuspiciousTransactionRepository
 import com.payflow.disputes.transaction.service.risk.TransactionRiskInput
 import com.payflow.disputes.transaction.service.risk.TransactionRiskService
 import org.springframework.stereotype.Service
@@ -14,7 +16,7 @@ import java.util.UUID
 
 @Service
 class TransactionService(
-    private val suspiciousTransactionRepository: SuspiciousTransactionRepository,
+    private val riskScreeningCaseRepository: RiskScreeningCaseRepository,
     private val suspiciousTransactionEventPublisher: SuspiciousTransactionEventPublisher,
     private val transactionRiskService: TransactionRiskService
 ) {
@@ -54,19 +56,29 @@ class TransactionService(
         )
 
         return if (transaction.status == TransactionStatus.SUSPICIOUS) {
-            val savedTransaction = suspiciousTransactionRepository.saveSuspicious(transaction)
-            suspiciousTransactionEventPublisher.publish(savedTransaction.toSuspiciousTransactionDetectedEvent())
-            savedTransaction
+            riskScreeningCaseRepository.save(transaction.toRiskScreeningCase())
+            suspiciousTransactionEventPublisher.publish(transaction.toSuspiciousTransactionDetectedEvent())
+            transaction
         } else {
             transaction
         }
     }
 
-    fun findSuspiciousById(id: UUID): Transaction? =
-        suspiciousTransactionRepository.findById(id)
+    fun findRiskScreeningCaseById(id: UUID): RiskScreeningCase? =
+        riskScreeningCaseRepository.findById(id)
 
-    fun findAllSuspicious(): List<Transaction> =
-        suspiciousTransactionRepository.findAll()
+    fun findAllRiskScreeningCases(): List<RiskScreeningCase> =
+        riskScreeningCaseRepository.findAll()
+
+    private fun Transaction.toRiskScreeningCase(): RiskScreeningCase =
+        RiskScreeningCase(
+            id = UUID.randomUUID(),
+            transactionId = id,
+            riskScore = riskScore,
+            riskReasons = riskReasons,
+            decision = RiskScreeningDecision.REQUIRES_REVIEW,
+            screenedAt = createdAt
+        )
 
     private fun Transaction.toSuspiciousTransactionDetectedEvent(): SuspiciousTransactionDetectedEvent =
         SuspiciousTransactionDetectedEvent(
