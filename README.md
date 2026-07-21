@@ -35,7 +35,7 @@ dispute-workflow-service/
 Запустить сервис операций:
 
 ```bash
-docker compose up -d postgres
+docker compose up -d postgres kafka kafka-ui
 ./gradlew :transaction-service:bootRun
 ```
 
@@ -84,9 +84,9 @@ docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server loca
 
 ## `transaction-service`
 
-`transaction-service` отвечает за первичную обработку операций клиента. Сервис не является источником полной истории транзакций: такая история считается внешней системой. На текущем этапе он предоставляет REST API для имитации входящего потока операций, рассчитывает `riskScore` и сохраняет в PostgreSQL только подозрительные операции, которые требуют дальнейшей проверки.
+`transaction-service` отвечает за первичную обработку операций клиента. Сервис не является источником полной истории транзакций: такая история считается внешней системой. На текущем этапе он предоставляет REST API для имитации входящего потока операций, рассчитывает `riskScore`, сохраняет в PostgreSQL только подозрительные операции и публикует событие о них в Kafka.
 
-Если операция проходит первичную проверку без подозрений, сервис возвращает результат скоринга, но не пишет эту операцию в свою базу. Это снижает нагрузку на реляционное хранилище и оставляет в нем только данные, нужные для дальнейшего dispute/workflow-процесса.
+Если операция проходит первичную проверку без подозрений, сервис возвращает результат скоринга, но не пишет эту операцию в свою базу и не отправляет событие в Kafka. Это снижает нагрузку на реляционное хранилище и оставляет в нем только данные, нужные для дальнейшего dispute/workflow-процесса.
 
 База `payment_disputes` создается Postgres-контейнером при первом запуске. Таблицы приложения создаются Hibernate при старте `transaction-service` по JPA entity.
 
@@ -99,8 +99,12 @@ transaction-service/src/main/kotlin/com/payflow/disputes/transaction/
     dto/        модели входящих запросов и ответов API
     error/      обработка ошибок REST API
   domain/       доменная модель операции и статусы
-  repository/   интерфейс репозитория, JPA entity и Spring Data JPA реализация для suspicious-хранилища
+  messaging/    Kafka-адаптеры для публикации событий
+  repository/   JPA entity и Spring Data JPA реализация suspicious-хранилища
   service/      бизнес-логика создания операций и первичная risk-оценка
+    command/    входные команды service-слоя
+    event/      события, которые публикует service-слой
+    port/       порты service-слоя для хранилища и публикации событий
     risk/       сервис скоринга и входные модели проверки
       rule/     отдельные правила первичной risk-оценки
 ```
@@ -118,7 +122,7 @@ GET  /api/suspicious-transactions/{id}  получить подозритель�
 Запустить сервис:
 
 ```bash
-docker compose up -d postgres
+docker compose up -d postgres kafka kafka-ui
 ./gradlew :transaction-service:bootRun
 ```
 
@@ -148,7 +152,7 @@ curl -X POST http://localhost:8081/api/transactions \
 }
 ```
 
-Такая операция не сохраняется в PostgreSQL, потому что она не требует дальнейшей проверки.
+Такая операция не сохраняется в PostgreSQL и не публикуется в Kafka, потому что она не требует дальнейшей проверки.
 
 Проверить подозрительную операцию:
 
@@ -182,7 +186,7 @@ curl -X POST http://localhost:8081/api/transactions \
 }
 ```
 
-Такая операция сохраняется в PostgreSQL как suspicious snapshot для дальнейшей обработки.
+Такая операция сохраняется в PostgreSQL как suspicious snapshot и публикуется в Kafka для дальнейшей обработки во втором сервисе.
 
 Получить список сохраненных подозрительных операций:
 
@@ -270,11 +274,50 @@ docker compose exec postgres psql -U payment_app -d payment_disputes \
   -c "select id, account_id, amount, currency, risk_score, status from suspicious_transactions order by created_at desc;"
 ```
 
+Проверить, что событие опубликовано в Kafka:
+
+```bash
+docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 \
+  --topic suspicious-transactions.detected \
+  --from-beginning \
+  --max-messages 1
+```
+
+Пример сообщения:
+
+```json
+{
+  "eventId": "f3a35c53-0dc5-40e6-83ed-d1d4f28b8207",
+  "suspiciousTransactionId": "7a0e30fe-2561-4a3c-b380-0122ff89d7f2",
+  "accountId": "acc-2001",
+  "merchant": "Unknown Crypto Exchange",
+  "amount": 150000,
+  "currency": "USD",
+  "customerAge": 76,
+  "channel": "UNKNOWN",
+  "riskScore": 185,
+  "riskReasons": [
+    "HIGH_AMOUNT",
+    "ELDERLY_CUSTOMER_TRANSFER",
+    "RISKY_MERCHANT",
+    "FOREIGN_CURRENCY",
+    "UNKNOWN_CHANNEL"
+  ],
+  "detectedAt": "2026-07-07T12:48:36.900994Z"
+}
+```
+
+Тот же топик можно посмотреть через Kafka UI:
+
+```text
+http://localhost:8085
+```
+
 ## План развития
 
-1. Публиковать события о подозрительных операциях в Kafka.
-2. Научить сервис разбора читать события из Kafka.
-3. Добавить Camunda-процесс проверки подозрительной операции.
-4. Возвращать итоговое решение в отдельный сервис принятия действий.
-5. Добавить миграции БД через Flyway или Liquibase.
-6. Добавить обработку ошибок, тесты и технический мониторинг.
+1. Научить сервис разбора читать события из Kafka.
+2. Добавить Camunda-процесс проверки подозрительной операции.
+3. Возвращать итоговое решение в отдельный сервис принятия действий.
+4. Добавить миграции БД через Flyway или Liquibase.
+5. Добавить обработку ошибок, тесты и технический мониторинг.
