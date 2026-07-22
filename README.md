@@ -5,7 +5,7 @@
 Проект состоит из двух Kotlin/Spring Boot сервисов:
 
 - `transaction-service` - сервис первичной обработки операций. Принимает транзакции, быстро оценивает риск по локальным правилам без вызова внешних сервисов, сохраняет короткий audit-результат для подозрительных операций и публикует событие в Kafka.
-- `dispute-workflow-service` - сервис углубленной проверки. Читает события о подозрительных операциях из Kafka. На следующих этапах будет создавать review-case, запускать BPMN-процесс и собирать дополнительные данные для решения.
+- `dispute-workflow-service` - сервис углубленной проверки. Читает события о подозрительных операциях из Kafka, создает `review_case` и хранит состояние дальнейшей проверки.
 
 Идея проекта: отделить быстрый поток обработки транзакций от более тяжелой проверки подозрительных операций. Первый сервис должен оставаться простым и быстрым, а оркестрация проверок, внешние запросы и дальнейшие решения выносятся в отдельные компоненты.
 
@@ -49,7 +49,7 @@ docker compose up -d postgres kafka kafka-ui
 
 Для локальной разработки используется Docker Compose:
 
-- `postgres` - операционное хранилище результатов первичного risk screening;
+- `postgres` - операционное хранилище результатов первичного risk screening и review-case второго сервиса;
 - `kafka` - брокер событий между сервисами;
 - `kafka-ui` - веб-интерфейс для просмотра топиков и сообщений Kafka.
 
@@ -306,21 +306,36 @@ http://localhost:8085
 
 ## `dispute-workflow-service`
 
-`dispute-workflow-service` отвечает за дальнейшую обработку подозрительных операций. Сейчас сервис подключен к Kafka и читает события из топика `suspicious-transactions.detected`.
+`dispute-workflow-service` отвечает за дальнейшую обработку подозрительных операций. Сервис подключен к Kafka, читает события из топика `suspicious-transactions.detected` и создает `review_case` для каждой операции, которая требует проверки.
 
-На этом этапе сервис не сохраняет событие в БД. Его задача - подтвердить связь между сервисами и принять входящий контекст для будущего workflow-процесса. Хранилище будет добавлено тогда, когда появится собственная сущность второго сервиса: `review_case`.
+В БД второго сервиса не сохраняется полный Kafka event. Хранится только состояние процесса проверки: идентификатор кейса, идентификатор транзакции, идентификатор исходного события, risk score, причины риска, статус и время получения. Детали операции остаются входным контекстом события и позже будут передаваться в BPMN-процесс.
 
 Структура модуля:
 
 ```text
 dispute-workflow-service/src/main/kotlin/com/payflow/disputes/workflow/
-  messaging/  DTO входящего Kafka-события и Kafka listener
+  api/
+    controller/ REST-контроллеры для просмотра review-case
+    dto/        модели ответов API
+  domain/       доменная модель review-case и статусы
+  messaging/    DTO входящего Kafka-события и Kafka listener
+  repository/   JPA entity и Spring Data JPA реализация хранилища review-case
+  service/
+    command/    входные команды service-слоя
+    port/       порты service-слоя для хранилища
 ```
 
 Запустить сервис:
 
 ```bash
 ./gradlew :dispute-workflow-service:bootRun
+```
+
+Доступные ручки:
+
+```text
+GET /api/review-cases       получить список review-case
+GET /api/review-cases/{id}  получить review-case по идентификатору
 ```
 
 Проверить работу можно так:
@@ -354,13 +369,49 @@ curl -X POST http://localhost:8081/api/transactions \
 5. В логах `dispute-workflow-service` должна появиться запись:
 
 ```text
-Received suspicious transaction event: eventId=..., transactionId=..., riskScore=..., reasons=[...]
+Created review case from suspicious transaction event: reviewCaseId=..., eventId=..., transactionId=..., riskScore=..., reasons=[...]
+```
+
+6. Проверить, что `review_case` сохранился в PostgreSQL:
+
+```bash
+docker compose exec postgres psql -U payment_app -d payment_disputes \
+  -c "select id, transaction_id, source_event_id, risk_score, status, received_at from review_cases order by received_at desc;"
+```
+
+7. Получить review-case через REST API:
+
+```bash
+curl http://localhost:8082/api/review-cases
+```
+
+Пример ответа:
+
+```json
+[
+  {
+    "id": "d09c31df-00fa-43cb-a1ea-91958479525b",
+    "transactionId": "7a0e30fe-2561-4a3c-b380-0122ff89d7f2",
+    "sourceEventId": "f3a35c53-0dc5-40e6-83ed-d1d4f28b8207",
+    "riskScore": 185,
+    "riskReasons": [
+      "HIGH_AMOUNT",
+      "ELDERLY_CUSTOMER_TRANSFER",
+      "RISKY_MERCHANT",
+      "FOREIGN_CURRENCY",
+      "UNKNOWN_CHANNEL"
+    ],
+    "status": "RECEIVED",
+    "receivedAt": "2026-07-07T12:48:36.900994Z",
+    "updatedAt": "2026-07-07T12:48:36.900994Z"
+  }
+]
 ```
 
 ## План развития
 
-1. Создавать `review_case` во втором сервисе на основе Kafka-события.
-2. Добавить Camunda-процесс проверки подозрительной операции.
+1. Добавить Camunda-процесс проверки подозрительной операции.
+2. Связать `review_case` с Camunda process instance.
 3. Возвращать итоговое решение в отдельный сервис принятия действий.
 4. Добавить миграции БД через Flyway или Liquibase.
 5. Добавить обработку ошибок, тесты и технический мониторинг.
