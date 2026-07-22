@@ -4,6 +4,17 @@ server:
 spring:
   application:
     name: dispute-workflow-service
+  datasource:
+    url: ${WORKFLOW_DB_URL:jdbc:postgresql://localhost:5432/payment_disputes}
+    username: ${WORKFLOW_DB_USER:payment_app}
+    password: ${WORKFLOW_DB_PASSWORD:payment_app}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9094}
     consumer:
